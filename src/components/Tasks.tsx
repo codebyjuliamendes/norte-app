@@ -2,6 +2,7 @@ import { useState } from 'react'
 import confetti from 'canvas-confetti'
 import { Plus, Search, Check, Trash2, Calendar as CalendarIcon, Grid, List, Sparkles, AlertCircle } from 'lucide-react'
 import { supabase, type Task, type Category } from '../lib/supabase'
+import { syncItemToRagMemory } from '../lib/ragEngine'
 import { CATEGORIES, categoryDot, categoryBg, formatDatePT, todayISO } from '../lib/categories'
 
 interface Props {
@@ -27,14 +28,18 @@ export default function Tasks({ tasks, userId, onChange, selectedDate }: Props) 
     e.preventDefault()
     if (!title.trim()) return
 
-    await supabase.from('tasks').insert({
+    const { data } = await supabase.from('tasks').insert({
       title: title.trim(),
       category,
       due_date: dueDate || null,
       user_id: userId,
       priority,
       quadrant,
-    })
+    }).select()
+
+    if (data && data[0]) {
+      syncItemToRagMemory(userId, 'task', data[0].id, title.trim(), `Categoria: ${category}, Prazo: ${dueDate || 'Sem data'}, Prioridade: ${priority}`, { category, priority, quadrant })
+    }
 
     setTitle('')
     setIsAdding(false)

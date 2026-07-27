@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { StickyNote, Plus, Trash2, Pin, Search, Copy, Check, Maximize2 } from 'lucide-react'
 import { supabase, type Note, type Category } from '../lib/supabase'
+import { syncItemToRagMemory } from '../lib/ragEngine'
 import { CATEGORIES, categoryDot, categoryBg } from '../lib/categories'
 
 interface Props {
@@ -22,12 +23,19 @@ export default function Notes({ notes, userId, onChange }: Props) {
     e.preventDefault()
     if (!title.trim() && !content.trim()) return
 
-    await supabase.from('notes').insert({
-      title: title.trim() || 'Sem título',
-      content: content.trim(),
+    const noteTitle = title.trim() || 'Sem título'
+    const noteContent = content.trim()
+
+    const { data } = await supabase.from('notes').insert({
+      title: noteTitle,
+      content: noteContent,
       category,
       user_id: userId,
-    })
+    }).select()
+
+    if (data && data[0]) {
+      syncItemToRagMemory(userId, 'note', data[0].id, noteTitle, noteContent, { category })
+    }
 
     setTitle('')
     setContent('')

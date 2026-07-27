@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { Sparkles, Bot, Check, ArrowRight, Lightbulb, Zap, X } from 'lucide-react'
+import { Sparkles, Bot, Check, ArrowRight, Zap, X, Search, Database, BrainCircuit } from 'lucide-react'
 import { supabase, type Task } from '../lib/supabase'
 import { todayISO } from '../lib/categories'
+import { queryRagContext, type RagMemory } from '../lib/ragEngine'
 
 interface Props {
   userId: string
@@ -20,6 +21,20 @@ export default function AiAssistantModal({ userId, tasks, onClose, onSuccess }: 
   const [loading, setLoading] = useState(false)
   const [selectedTaskToBreak, setSelectedTaskToBreak] = useState<string>('')
   const [createdMsg, setCreatedMsg] = useState<string | null>(null)
+
+  // RAG Search State
+  const [ragQuery, setRagQuery] = useState('')
+  const [ragResults, setRagResults] = useState<{ title: string; content: string; sourceType: string; score: number }[]>([])
+  const [isSearchingRag, setIsSearchingRag] = useState(false)
+
+  async function handleSearchRag(e: React.FormEvent) {
+    e.preventDefault()
+    if (!ragQuery.trim()) return
+    setIsSearchingRag(true)
+    const results = await queryRagContext(userId, ragQuery, 5)
+    setRagResults(results)
+    setIsSearchingRag(false)
+  }
 
   async function generateBalancedRoutine() {
     setLoading(true)
@@ -73,64 +88,103 @@ export default function AiAssistantModal({ userId, tasks, onClose, onSuccess }: 
 
   return (
     <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-6 relative overflow-hidden">
-        {/* Glow orb */}
-        <div className="absolute -top-12 -right-12 w-40 h-40 bg-indigo-500/20 rounded-full blur-2xl pointer-events-none" />
-
+      <div className="bg-[#161B22] border border-[#21262D] rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-5 relative max-h-[90vh] overflow-y-auto">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+        <div className="flex items-center justify-between border-b border-[#21262D] pb-3">
           <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-gradient-to-tr from-indigo-600 to-purple-600 text-white shadow-md">
-              <Bot className="w-5 h-5" />
+            <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400">
+              <Bot className="w-5 h-5 stroke-[1.75]" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-white font-display">Assistente do Norte</h2>
-              <p className="text-[11px] text-slate-400">Inteligência de rotina e decomposição</p>
+              <h2 className="text-base font-bold text-white font-display">Assistente IA & Memória RAG 🧠</h2>
+              <p className="text-[11px] text-slate-400">Sua memória pessoal indexada no Supabase</p>
             </div>
           </div>
 
           <button
             onClick={onClose}
-            className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+            className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-[#0D1117] transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Action 1: Suggest Routine */}
-        <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-3">
+        {/* RAG Memory Search Box */}
+        <div className="bg-[#0D1117] border border-[#21262D] rounded-2xl p-4 space-y-3">
           <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-indigo-400" />
-            <h3 className="text-xs font-bold text-white">Sugerir Rotina do Dia</h3>
+            <BrainCircuit className="w-4 h-4 text-emerald-400" />
+            <h3 className="text-xs font-bold text-white">Consulta à Memória RAG (Supabase)</h3>
           </div>
           <p className="text-xs text-slate-400">
-            Gera automaticamente 3 tarefas fundamentais equilibradas (*Vida*, *Estudo* e *Trabalho*) para hoje.
+            Pesquise no seu histórico completo de tarefas, notas, compromissos e diário por similaridade semântica.
+          </p>
+
+          <form onSubmit={handleSearchRag} className="flex gap-2">
+            <input
+              type="text"
+              value={ragQuery}
+              onChange={(e) => setRagQuery(e.target.value)}
+              placeholder="Ex: o que tenho de estudo ou reuniões?"
+              className="flex-1 bg-[#161B22] border border-[#21262D] rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-600 outline-none focus:border-emerald-500"
+            />
+            <button
+              type="submit"
+              disabled={isSearchingRag || !ragQuery.trim()}
+              className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-3 py-2 rounded-xl text-xs font-bold transition-all disabled:opacity-50 flex items-center gap-1"
+            >
+              <Search className="w-3.5 h-3.5" />
+              <span>Buscar</span>
+            </button>
+          </form>
+
+          {/* RAG Results */}
+          {ragResults.length > 0 && (
+            <div className="space-y-2 pt-2 border-t border-[#21262D]">
+              <span className="text-[10px] font-mono text-slate-500 uppercase">Contextos Encontrados:</span>
+              {ragResults.map((r, i) => (
+                <div key={i} className="bg-[#161B22] border border-[#21262D] rounded-xl p-2.5 text-xs space-y-1">
+                  <div className="flex items-center justify-between text-slate-400 font-mono text-[10px]">
+                    <span className="capitalize font-bold text-emerald-400">[{r.sourceType}]</span>
+                    <span>Relevância: {Math.round(r.score * 100)}%</span>
+                  </div>
+                  <h4 className="font-bold text-white">{r.title}</h4>
+                  <p className="text-[11px] text-slate-300 line-clamp-2">{r.content}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Action 1: Suggest Routine */}
+        <div className="bg-[#0D1117] border border-[#21262D] rounded-2xl p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-emerald-400" />
+            <h3 className="text-xs font-bold text-white">Sugerir Rotina de Hoje</h3>
+          </div>
+          <p className="text-xs text-slate-400">
+            Gera 3 tarefas equilibradas (*Vida*, *Estudo* e *Trabalho*) para hoje.
           </p>
           <button
             onClick={generateBalancedRoutine}
             disabled={loading}
-            className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white py-2 rounded-xl text-xs font-bold transition-all shadow-sm disabled:opacity-60"
+            className="w-full flex items-center justify-center gap-2 bg-[#161B22] hover:bg-slate-800 text-white border border-[#30363D] py-2 rounded-xl text-xs font-bold transition-all disabled:opacity-60"
           >
             <span>Gerar Rotina de Hoje</span>
-            <ArrowRight className="w-3.5 h-3.5" />
+            <ArrowRight className="w-3.5 h-3.5 text-emerald-400" />
           </button>
         </div>
 
         {/* Action 2: Decompose Task */}
         {tasks.filter((t) => !t.done).length > 0 && (
-          <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-3">
+          <div className="bg-[#0D1117] border border-[#21262D] rounded-2xl p-4 space-y-3">
             <div className="flex items-center gap-2">
               <Zap className="w-4 h-4 text-amber-400" />
               <h3 className="text-xs font-bold text-white">Decompor Tarefa Complexa</h3>
             </div>
-            <p className="text-xs text-slate-400">
-              Escolha uma tarefa pendente para dividi-la em 3 micro-passos acionáveis.
-            </p>
-
             <select
               value={selectedTaskToBreak}
               onChange={(e) => setSelectedTaskToBreak(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-700 text-xs text-white rounded-xl p-2.5 outline-none"
+              className="w-full bg-[#161B22] border border-[#21262D] text-xs text-white rounded-xl p-2.5 outline-none"
             >
               <option value="">Selecione uma tarefa...</option>
               {tasks
@@ -145,16 +199,16 @@ export default function AiAssistantModal({ userId, tasks, onClose, onSuccess }: 
             <button
               onClick={decomposeTask}
               disabled={loading || !selectedTaskToBreak}
-              className="w-full flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 text-slate-950 py-2 rounded-xl text-xs font-bold transition-all shadow-sm disabled:opacity-50"
+              className="w-full flex items-center justify-center gap-2 bg-[#161B22] hover:bg-slate-800 text-white border border-[#30363D] py-2 rounded-xl text-xs font-bold transition-all disabled:opacity-50"
             >
               <span>Decompor em 3 Passos</span>
-              <Zap className="w-3.5 h-3.5" />
+              <Zap className="w-3.5 h-3.5 text-amber-400" />
             </button>
           </div>
         )}
 
         {createdMsg && (
-          <div className="bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-xs p-3 rounded-xl flex items-center gap-2">
+          <div className="bg-emerald-950/60 border border-emerald-800/80 text-emerald-300 text-xs p-3 rounded-xl flex items-center gap-2">
             <Check className="w-4 h-4 text-emerald-400" />
             <span>{createdMsg}</span>
           </div>
