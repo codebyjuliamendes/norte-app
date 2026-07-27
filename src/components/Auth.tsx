@@ -32,7 +32,13 @@ export default function Auth() {
       const { error } = await supabase.auth.signInWithPassword({ email, password })
       if (error) setError(traduzErro(error.message))
     } else {
-      const { error } = await supabase.auth.signUp({ email, password })
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo: window.location.origin,
+        },
+      })
       if (error) setError(traduzErro(error.message))
       else setInfo('Conta criada com sucesso! Verifique seu e-mail para confirmar.')
     }
