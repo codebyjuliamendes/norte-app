@@ -44,6 +44,7 @@ import DailyJournal from './components/DailyJournal'
 import SocialChallenges from './components/SocialChallenges'
 import QuickActionFab from './components/QuickActionFab'
 import KeyboardShortcutsModal from './components/KeyboardShortcutsModal'
+import UserProfileModal from './components/UserProfileModal'
 import { todayISO, formatDatePT } from './lib/categories'
 
 import NorteLogo from './components/NorteLogo'
@@ -69,6 +70,7 @@ export default function App() {
   const [bonusXp, setBonusXp] = useState(0)
   const [showAiModal, setShowAiModal] = useState(false)
   const [showShortcutsModal, setShowShortcutsModal] = useState(false)
+  const [showProfileModal, setShowProfileModal] = useState(false)
 
   const [tasks, setTasks] = useState<Task[]>([])
   const [events, setEvents] = useState<CalendarEvent[]>([])
@@ -155,11 +157,23 @@ export default function App() {
 
           {/* Action Controls */}
           <div className="flex items-center gap-2">
-            {/* User Account Badge */}
-            <div className="hidden sm:flex items-center gap-1.5 text-xs text-slate-300 bg-[#161B22] px-3 py-1.5 rounded-xl border border-[#21262D]">
-              <UserIcon className="w-3.5 h-3.5 text-emerald-400" />
-              <span className="max-w-[120px] truncate font-mono text-[11px]">{userAccountLabel}</span>
-            </div>
+            {/* Clickable User Profile Avatar Button */}
+            <button
+              onClick={() => setShowProfileModal(true)}
+              className="flex items-center gap-2 bg-[#161B22] hover:bg-[#1F242C] text-slate-200 border border-[#30363D] hover:border-emerald-500/50 px-2.5 py-1.5 rounded-xl text-xs font-semibold transition-all group"
+              title="Meu Perfil e Personalização"
+            >
+              <div className="w-5 h-5 rounded-lg bg-[#0D1117] border border-[#30363D] flex items-center justify-center text-xs overflow-hidden">
+                {user?.user_metadata?.avatar_url ? (
+                  <img src={user.user_metadata.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
+                ) : (
+                  <span>{user?.user_metadata?.avatar || '🧭'}</span>
+                )}
+              </div>
+              <span className="hidden sm:inline max-w-[100px] truncate font-mono text-[11px] font-bold text-white">
+                {user?.user_metadata?.name || user?.email?.split('@')[0] || 'Perfil'}
+              </span>
+            </button>
 
             <button
               onClick={() => setShowAiModal(true)}
@@ -310,6 +324,15 @@ export default function App() {
       {/* Keyboard Shortcuts Modal */}
       {showShortcutsModal && (
         <KeyboardShortcutsModal onClose={() => setShowShortcutsModal(false)} />
+      )}
+
+      {/* User Profile Modal */}
+      {showProfileModal && (
+        <UserProfileModal
+          user={user}
+          onClose={() => setShowProfileModal(false)}
+          onUpdateProfile={loadData}
+        />
       )}
     </div>
   )
