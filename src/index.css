@@ -1,0 +1,75 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Space Grotesk", "Plus Jakarta Sans", sans-serif;
+  --font-body: "Plus Jakarta Sans", sans-serif;
+  --font-mono: "IBM Plex Mono", monospace;
+
+  /* Editorial Warm Dark Palette */
+  --color-canvas: #0D1117;
+  --color-surface: #161B22;
+  --color-surface-hover: #1F242C;
+  --color-border-subtle: #21262D;
+  --color-border-strong: #30363D;
+  --color-text-main: #F0F6FC;
+  --color-text-muted: #8B949E;
+  --color-pine-green: #10B981;
+}
+
+@layer base {
+  body {
+    background-color: #0D1117;
+    color: #F0F6FC;
+    font-family: var(--font-body);
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+/* Crisp Minimalist Card Styling */
+.card-editorial {
+  background: #161B22;
+  border: 1px solid #21262D;
+  border-radius: 1rem;
+}
+
+.card-editorial:hover {
+  border-color: #30363D;
+}
+
+/* Smooth Checkbox Animation */
+@keyframes checkmark {
+  0% {
+    transform: scale(0);
+    opacity: 0;
+  }
+  50% {
+    transform: scale(1.15);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.animate-checkmark {
+  animation: checkmark 0.2s ease-out forwards;
+}
+
+/* Custom Minimal Scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #30363D;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #484F58;
+}
