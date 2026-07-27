@@ -44,19 +44,37 @@ import DailyJournal from './components/DailyJournal'
 import SocialChallenges from './components/SocialChallenges'
 import QuickActionFab from './components/QuickActionFab'
 import KeyboardShortcutsModal from './components/KeyboardShortcutsModal'
+import KanbanBoard from './components/KanbanBoard'
+import ProductivityAnalytics from './components/ProductivityAnalytics'
+import WeeklyReportExporter from './components/WeeklyReportExporter'
 import UserProfileModal from './components/UserProfileModal'
-import { todayISO, formatDatePT } from './lib/categories'
-
 import NorteLogo from './components/NorteLogo'
+import { todayISO, formatDatePT } from './lib/categories'
+import { LayoutGrid, BarChart3, FileSpreadsheet } from 'lucide-react'
 
-type Tab = 'tarefas' | 'foco' | 'calendario' | 'notas' | 'habitos' | 'social' | 'metas' | 'diario' | 'conquistas'
+type Tab =
+  | 'tarefas'
+  | 'kanban'
+  | 'foco'
+  | 'calendario'
+  | 'notas'
+  | 'habitos'
+  | 'metrica'
+  | 'relatorio'
+  | 'social'
+  | 'metas'
+  | 'diario'
+  | 'conquistas'
 
 const TABS: { value: Tab; label: string; icon: any }[] = [
   { value: 'tarefas', label: 'Tarefas', icon: CheckSquare },
+  { value: 'kanban', label: 'Kanban', icon: LayoutGrid },
   { value: 'foco', label: 'Foco', icon: Clock },
   { value: 'calendario', label: 'Agenda', icon: CalendarIcon },
   { value: 'notas', label: 'Notas', icon: FileText },
   { value: 'habitos', label: 'Hábitos', icon: Flame },
+  { value: 'metrica', label: 'Métricas', icon: BarChart3 },
+  { value: 'relatorio', label: 'Relatório', icon: FileSpreadsheet },
   { value: 'social', label: 'Social', icon: Users },
   { value: 'metas', label: 'Metas', icon: Target },
   { value: 'diario', label: 'Diário', icon: Heart },
@@ -274,6 +292,9 @@ export default function App() {
           {tab === 'tarefas' && (
             <Tasks tasks={tasks} userId={user.id} onChange={loadData} selectedDate={selectedDate} />
           )}
+          {tab === 'kanban' && (
+            <KanbanBoard tasks={tasks} userId={user.id} onChange={loadData} />
+          )}
           {tab === 'foco' && <FocusTimer onSessionComplete={handlePomodoroReward} />}
           {tab === 'calendario' && (
             <CalendarView events={events} userId={user.id} onChange={loadData} />
@@ -281,6 +302,25 @@ export default function App() {
           {tab === 'notas' && <Notes notes={notes} userId={user.id} onChange={loadData} />}
           {tab === 'habitos' && (
             <Habits habits={habits} checkins={checkins} userId={user.id} onChange={loadData} />
+          )}
+          {tab === 'metrica' && (
+            <ProductivityAnalytics
+              tasks={tasks}
+              events={events}
+              habits={habits}
+              checkins={checkins}
+              bonusXp={bonusXp}
+            />
+          )}
+          {tab === 'relatorio' && (
+            <WeeklyReportExporter
+              tasks={tasks}
+              events={events}
+              notes={notes}
+              habits={habits}
+              checkins={checkins}
+              goals={goals}
+            />
           )}
           {tab === 'social' && <SocialChallenges />}
           {tab === 'metas' && (
