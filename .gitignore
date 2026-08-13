@@ -25,3 +25,6 @@ dist-ssr
 *.sw?
 
 .vercel
+.agent
+.tmp
+*.tsbuildinfo
