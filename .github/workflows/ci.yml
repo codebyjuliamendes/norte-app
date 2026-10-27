@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm run typecheck
+      - run: npm test
+      - name: Build (local mode, no secrets)
+        run: npm run build
+      - name: Smoke test of the built app
+        run: |
+          npx vite preview --port 4173 --strictPort &
+          for i in $(seq 1 20); do curl -fsS http://localhost:4173/ >/dev/null && break; sleep 1; done
+          curl -fsS http://localhost:4173/ | grep -q '<div id="root"></div>'
+          curl -fsSI http://localhost:4173/ | grep -qi 'content-security-policy'
+          curl -fsS http://localhost:4173/manifest.webmanifest | grep -q '"short_name":"Norte"'
