@@ -1,4 +1,4 @@
-import { supabase } from './supabase'
+import { isSupabaseConfigured, supabase } from './supabase'
 
 export interface RagMemory {
   id?: string
@@ -7,7 +7,7 @@ export interface RagMemory {
   source_id: string
   title: string
   content: string
-  metadata?: Record<string, any>
+  metadata?: Record<string, unknown>
   embedding?: number[]
   updated_at?: string
 }
@@ -17,9 +17,12 @@ export interface RagMemory {
  * Generates semantic dense vectors for text in browser without API key latency.
  */
 export function generateTextEmbedding(text: string, dimensions: number = 384): number[] {
-  const normalized = text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  const normalized = text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
   const words = normalized.split(/\W+/).filter(Boolean)
-  
+
   const vector = new Array(dimensions).fill(0)
   if (words.length === 0) return vector
 
@@ -69,22 +72,19 @@ export async function syncItemToRagMemory(
   sourceId: string,
   title: string,
   content: string,
-  metadata: Record<string, any> = {}
+  metadata: Record<string, unknown> = {},
 ) {
   if (!userId) return
 
   const fullText = `${title} ${content} ${JSON.stringify(metadata)}`
-  const embedding = generateTextEmbedding(fullText)
+  // In local mode embeddings are recomputed at query time to keep Web Storage small.
+  const embedding = isSupabaseConfigured ? generateTextEmbedding(fullText) : undefined
 
   try {
     // Delete existing memory for this source_id if any
-    await supabase
-      .from('rag_memories')
-      .delete()
-      .eq('user_id', userId)
-      .eq('source_id', sourceId)
+    await supabase.from('rag_memories').delete().eq('user_id', userId).eq('source_id', sourceId)
 
-    // Insert updated memory with embedding into Supabase
+    // Insert updated memory (with embedding when the cloud backend is available)
     await supabase.from('rag_memories').insert({
       user_id: userId,
       source_type: sourceType,
@@ -106,32 +106,27 @@ export async function syncItemToRagMemory(
 export async function queryRagContext(
   userId: string,
   queryText: string,
-  topK: number = 5
+  topK: number = 5,
 ): Promise<{ title: string; content: string; sourceType: string; score: number }[]> {
   if (!userId || !queryText.trim()) return []
 
   const queryEmbedding = generateTextEmbedding(queryText)
 
   try {
-    const { data, error } = await supabase
-      .from('rag_memories')
-      .select('*')
-      .eq('user_id', userId)
+    const { data, error } = await supabase.from('rag_memories').select('*').eq('user_id', userId)
 
     if (error || !data || data.length === 0) return []
 
     // Calculate Cosine Similarity with stored embeddings
-    const scored = data.map((item: any) => {
+    const scored = (data as RagMemory[]).map((item) => {
+      const stored = parseEmbedding(item.embedding)
+      const vector =
+        stored && stored.length === queryEmbedding.length
+          ? stored
+          : generateTextEmbedding(`${item.title} ${item.content} ${JSON.stringify(item.metadata ?? {})}`)
       let sim = 0
-      if (item.embedding && Array.isArray(item.embedding)) {
-        for (let i = 0; i < queryEmbedding.length; i++) {
-          sim += queryEmbedding[i] * (item.embedding[i] || 0)
-        }
-      } else {
-        // Fallback keyword score
-        const lowerQ = queryText.toLowerCase()
-        const lowerT = (item.title + ' ' + item.content).toLowerCase()
-        sim = lowerT.includes(lowerQ) ? 0.8 : 0.1
+      for (let i = 0; i < queryEmbedding.length; i++) {
+        sim += queryEmbedding[i] * (vector[i] || 0)
       }
       return {
         title: item.title,
@@ -142,10 +137,25 @@ export async function queryRagContext(
     })
 
     return scored
+      .filter((r) => r.score > 0)
       .sort((a, b) => b.score - a.score)
       .slice(0, topK)
   } catch (err) {
     console.error('RAG context query error:', err)
     return []
   }
+}
+
+/** pgvector columns come back as a string like "[0.1,0.2]"; JSON columns as arrays. */
+function parseEmbedding(value: unknown): number[] | null {
+  if (Array.isArray(value)) return value.map(Number)
+  if (typeof value === 'string') {
+    try {
+      const parsed: unknown = JSON.parse(value)
+      return Array.isArray(parsed) ? parsed.map(Number) : null
+    } catch {
+      return null
+    }
+  }
+  return null
 }
