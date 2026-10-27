@@ -1,6 +1,7 @@
-import { BarChart3, TrendingUp, Award, Flame, CheckCircle2, Clock, Calendar, Zap } from 'lucide-react'
+import { TrendingUp, Flame, CheckCircle2, Calendar, Zap } from 'lucide-react'
 import type { Task, CalendarEvent, Habit, HabitCheckin } from '../lib/supabase'
 import { todayISO } from '../lib/categories'
+import { productivityScore } from '../lib/domain/progress'
 
 interface Props {
   tasks: Task[]
@@ -16,13 +17,11 @@ export default function ProductivityAnalytics({ tasks, events, habits, checkins,
   const completedTasks = tasks.filter((t) => t.done).length
   const completionRate = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0
 
-  const todayHabitsCount = habits.filter((h) =>
-    checkins.some((c) => c.habit_id === h.id && c.checkin_date === today)
-  ).length
+  const todayHabitsCount = habits.filter((h) => checkins.some((c) => c.habit_id === h.id && c.checkin_date === today)).length
   const habitRate = habits.length > 0 ? Math.round((todayHabitsCount / habits.length) * 100) : 0
 
   // Calculate Productivity Health Score (0-100%)
-  const healthScore = Math.min(100, Math.round(completionRate * 0.5 + habitRate * 0.3 + (bonusXp > 0 ? 20 : 0)))
+  const healthScore = productivityScore(completionRate, habitRate, bonusXp)
 
   return (
     <div className="space-y-6">
@@ -35,12 +34,11 @@ export default function ProductivityAnalytics({ tasks, events, habits, checkins,
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-base font-bold text-white font-display">Saúde da Sua Produtividade 📊</h2>
-                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-emerald-950 text-emerald-400 border border-emerald-800">
-                  REAL-TIME
-                </span>
+                <h2 className="text-base font-bold text-white font-display">Saúde da Sua Produtividade</h2>
               </div>
-              <p className="text-xs text-slate-400">Métricas consolidadas de tarefas, foco e consistência de hábitos</p>
+              <p className="text-xs text-slate-400">
+                50% conclusão de tarefas + 30% hábitos de hoje + 20% se houve sessão de foco
+              </p>
             </div>
           </div>
 
@@ -51,7 +49,14 @@ export default function ProductivityAnalytics({ tasks, events, habits, checkins,
         </div>
 
         {/* Progress Bar Health */}
-        <div className="w-full bg-[#0D1117] h-3 rounded-full overflow-hidden p-0.5 border border-[#21262D]">
+        <div
+          className="w-full bg-[#0D1117] h-3 rounded-full overflow-hidden p-0.5 border border-[#21262D]"
+          role="progressbar"
+          aria-label="Score de produtividade"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={healthScore}
+        >
           <div
             className="bg-gradient-to-r from-emerald-500 via-teal-400 to-indigo-500 h-full rounded-full transition-all duration-700"
             style={{ width: `${healthScore}%` }}
@@ -64,10 +69,10 @@ export default function ProductivityAnalytics({ tasks, events, habits, checkins,
         <div className="bg-[#161B22] border border-[#21262D] rounded-2xl p-4 space-y-1">
           <div className="flex items-center justify-between text-xs text-slate-400">
             <span>Taxa Conclusão</span>
-            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+            <CheckCircle2 aria-hidden="true" className="w-4 h-4 text-emerald-400" />
           </div>
           <div className="text-xl font-bold text-white font-display">{completionRate}%</div>
-          <span className="text-[10px] font-mono text-slate-500">
+          <span className="text-[10px] font-mono text-slate-400">
             {completedTasks} de {totalTasks} concluídas
           </span>
         </div>
@@ -75,10 +80,10 @@ export default function ProductivityAnalytics({ tasks, events, habits, checkins,
         <div className="bg-[#161B22] border border-[#21262D] rounded-2xl p-4 space-y-1">
           <div className="flex items-center justify-between text-xs text-slate-400">
             <span>Hábitos Hoje</span>
-            <Flame className="w-4 h-4 text-amber-400" />
+            <Flame aria-hidden="true" className="w-4 h-4 text-amber-400" />
           </div>
           <div className="text-xl font-bold text-white font-display">{habitRate}%</div>
-          <span className="text-[10px] font-mono text-slate-500">
+          <span className="text-[10px] font-mono text-slate-400">
             {todayHabitsCount} de {habits.length} check-ins
           </span>
         </div>
@@ -86,19 +91,19 @@ export default function ProductivityAnalytics({ tasks, events, habits, checkins,
         <div className="bg-[#161B22] border border-[#21262D] rounded-2xl p-4 space-y-1">
           <div className="flex items-center justify-between text-xs text-slate-400">
             <span>XP Acumulado</span>
-            <Zap className="w-4 h-4 text-purple-400" />
+            <Zap aria-hidden="true" className="w-4 h-4 text-purple-400" />
           </div>
           <div className="text-xl font-bold text-white font-display">+{bonusXp} XP</div>
-          <span className="text-[10px] font-mono text-slate-500">Bônus por sessões</span>
+          <span className="text-[10px] font-mono text-slate-400">Bônus por sessões de foco</span>
         </div>
 
         <div className="bg-[#161B22] border border-[#21262D] rounded-2xl p-4 space-y-1">
           <div className="flex items-center justify-between text-xs text-slate-400">
             <span>Agenda Próxima</span>
-            <Calendar className="w-4 h-4 text-indigo-400" />
+            <Calendar aria-hidden="true" className="w-4 h-4 text-indigo-400" />
           </div>
-          <div className="text-xl font-bold text-white font-display">{events.length}</div>
-          <span className="text-[10px] font-mono text-slate-500">Compromissos salvos</span>
+          <div className="text-xl font-bold text-white font-display">{events.filter((e) => e.event_date >= today).length}</div>
+          <span className="text-[10px] font-mono text-slate-400">Compromissos futuros</span>
         </div>
       </div>
     </div>

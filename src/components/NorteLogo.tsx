@@ -5,12 +5,7 @@ interface NorteLogoProps {
   textSize?: string
 }
 
-export default function NorteLogo({
-  className = '',
-  size = 36,
-  showText = false,
-  textSize = 'text-lg',
-}: NorteLogoProps) {
+export default function NorteLogo({ className = '', size = 36, showText = false, textSize = 'text-lg' }: NorteLogoProps) {
   return (
     <div className={`inline-flex items-center gap-3 ${className}`}>
       {/* Precision Geometric Compass & Star SVG Mark */}
@@ -27,14 +22,7 @@ export default function NorteLogo({
           className="transition-transform duration-300 group-hover:rotate-12"
         >
           {/* Outer Ring */}
-          <circle
-            cx="20"
-            cy="20"
-            r="17"
-            stroke="#30363D"
-            strokeWidth="1.5"
-            strokeDasharray="2 3"
-          />
+          <circle cx="20" cy="20" r="17" stroke="#30363D" strokeWidth="1.5" strokeDasharray="2 3" />
 
           {/* Cardinal Directions subtle crosshair */}
           <line x1="20" y1="5" x2="20" y2="35" stroke="#484F58" strokeWidth="1" opacity="0.6" />
@@ -54,15 +42,7 @@ export default function NorteLogo({
           <circle cx="20" cy="20" r="1.2" fill="#0D1117" />
 
           {/* North Badge Letter N */}
-          <text
-            x="20"
-            y="4"
-            textAnchor="middle"
-            fill="#10B981"
-            fontSize="5"
-            fontWeight="bold"
-            fontFamily="monospace"
-          >
+          <text x="20" y="4" textAnchor="middle" fill="#10B981" fontSize="5" fontWeight="bold" fontFamily="monospace">
             N
           </text>
         </svg>
@@ -70,9 +50,7 @@ export default function NorteLogo({
 
       {showText && (
         <div className="flex flex-col">
-          <span className={`font-display font-extrabold tracking-wider text-white ${textSize}`}>
-            NORTE
-          </span>
+          <span className={`font-display font-extrabold tracking-wider text-white ${textSize}`}>NORTE</span>
           <span className="text-[10px] font-mono tracking-widest text-emerald-400 uppercase font-semibold -mt-1">
             Produtividade
           </span>

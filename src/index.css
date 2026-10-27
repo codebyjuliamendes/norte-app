@@ -1,25 +1,36 @@
-@import "tailwindcss";
+@import 'tailwindcss';
+
+/*
+ * The app is dark-only (html has class="dark"). Bind Tailwind's `dark:` variant to that class
+ * instead of the OS preference, otherwise users with a light OS theme got white cards
+ * with light text in a few screens.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
-  --font-display: "Space Grotesk", "Plus Jakarta Sans", sans-serif;
-  --font-body: "Plus Jakarta Sans", sans-serif;
-  --font-mono: "IBM Plex Mono", monospace;
+  --font-display: 'Space Grotesk', 'Plus Jakarta Sans', sans-serif;
+  --font-body: 'Plus Jakarta Sans', sans-serif;
+  --font-mono: 'IBM Plex Mono', monospace;
 
   /* Editorial Warm Dark Palette */
-  --color-canvas: #0D1117;
-  --color-surface: #161B22;
-  --color-surface-hover: #1F242C;
-  --color-border-subtle: #21262D;
-  --color-border-strong: #30363D;
-  --color-text-main: #F0F6FC;
-  --color-text-muted: #8B949E;
-  --color-pine-green: #10B981;
+  --color-canvas: #0d1117;
+  --color-surface: #161b22;
+  --color-surface-hover: #1f242c;
+  --color-border-subtle: #21262d;
+  --color-border-strong: #30363d;
+  --color-text-main: #f0f6fc;
+  --color-text-muted: #8b949e;
+  --color-pine-green: #10b981;
 }
 
 @layer base {
+  :root {
+    color-scheme: dark;
+  }
+
   body {
-    background-color: #0D1117;
-    color: #F0F6FC;
+    background-color: #0d1117;
+    color: #f0f6fc;
     font-family: var(--font-body);
     -webkit-font-smoothing: antialiased;
   }
@@ -27,13 +38,13 @@
 
 /* Crisp Minimalist Card Styling */
 .card-editorial {
-  background: #161B22;
-  border: 1px solid #21262D;
+  background: #161b22;
+  border: 1px solid #21262d;
   border-radius: 1rem;
 }
 
 .card-editorial:hover {
-  border-color: #30363D;
+  border-color: #30363d;
 }
 
 /* Smooth Checkbox Animation */
@@ -66,10 +77,47 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #30363D;
+  background: #30363d;
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #484F58;
+  background: #484f58;
+}
+
+/*
+ * Accessibility (kept outside @layer so it wins over `outline-none` utilities).
+ */
+:focus-visible {
+  outline: 2px solid #34d399;
+  outline-offset: 2px;
+}
+
+.skip-link {
+  position: absolute;
+  left: 1rem;
+  top: -3rem;
+  z-index: 100;
+  background: #10b981;
+  color: #0d1117;
+  font-weight: 700;
+  font-size: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.75rem;
+  transition: top 0.15s;
+}
+
+.skip-link:focus {
+  top: 0.75rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
