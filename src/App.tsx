@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
 import {
   Compass,
   CheckSquare,
@@ -10,16 +10,18 @@ import {
   Trophy,
   Bot,
   RefreshCw,
-  Database,
   Target,
   Heart,
   Users,
-  User as UserIcon,
   Keyboard,
+  LayoutGrid,
+  BarChart3,
+  FileSpreadsheet,
+  CloudOff,
+  HardDrive,
 } from 'lucide-react'
 import {
   supabase,
-  isSupabaseConfigured,
   type Task,
   type CalendarEvent,
   type Note,
@@ -28,29 +30,31 @@ import {
   type Goal,
   type JournalEntry,
 } from './lib/supabase'
-import { useAuth } from './lib/useAuth'
+import { useAuth, useSyncStatus } from './lib/useAuth'
+import { safeCategory, todayISO, formatDatePT } from './lib/categories'
 import Auth from './components/Auth'
 import WeekRibbon from './components/WeekRibbon'
-import Tasks from './components/Tasks'
-import CalendarView from './components/CalendarView'
-import Notes from './components/Notes'
-import Habits from './components/Habits'
 import StatsOverview from './components/StatsOverview'
+import Tasks from './components/Tasks'
 import FocusTimer from './components/FocusTimer'
-import Gamification from './components/Gamification'
-import AiAssistantModal from './components/AiAssistantModal'
-import GoalsTracker from './components/GoalsTracker'
-import DailyJournal from './components/DailyJournal'
-import SocialChallenges from './components/SocialChallenges'
 import QuickActionFab from './components/QuickActionFab'
-import KeyboardShortcutsModal from './components/KeyboardShortcutsModal'
-import KanbanBoard from './components/KanbanBoard'
-import ProductivityAnalytics from './components/ProductivityAnalytics'
-import WeeklyReportExporter from './components/WeeklyReportExporter'
-import UserProfileModal from './components/UserProfileModal'
 import NorteLogo from './components/NorteLogo'
-import { todayISO, formatDatePT } from './lib/categories'
-import { LayoutGrid, BarChart3, FileSpreadsheet } from 'lucide-react'
+import { FormError } from './components/ui'
+
+// Secondary screens are code-split to keep the initial bundle small.
+const KanbanBoard = lazy(() => import('./components/KanbanBoard'))
+const CalendarView = lazy(() => import('./components/CalendarView'))
+const Notes = lazy(() => import('./components/Notes'))
+const Habits = lazy(() => import('./components/Habits'))
+const ProductivityAnalytics = lazy(() => import('./components/ProductivityAnalytics'))
+const WeeklyReportExporter = lazy(() => import('./components/WeeklyReportExporter'))
+const SocialChallenges = lazy(() => import('./components/SocialChallenges'))
+const GoalsTracker = lazy(() => import('./components/GoalsTracker'))
+const DailyJournal = lazy(() => import('./components/DailyJournal'))
+const Gamification = lazy(() => import('./components/Gamification'))
+const AiAssistantModal = lazy(() => import('./components/AiAssistantModal'))
+const KeyboardShortcutsModal = lazy(() => import('./components/KeyboardShortcutsModal'))
+const UserProfileModal = lazy(() => import('./components/UserProfileModal'))
 
 type Tab =
   | 'tarefas'
@@ -66,7 +70,7 @@ type Tab =
   | 'diario'
   | 'conquistas'
 
-const TABS: { value: Tab; label: string; icon: any }[] = [
+const TABS: { value: Tab; label: string; icon: typeof Compass }[] = [
   { value: 'tarefas', label: 'Tarefas', icon: CheckSquare },
   { value: 'kanban', label: 'Kanban', icon: LayoutGrid },
   { value: 'foco', label: 'Foco', icon: Clock },
@@ -81,63 +85,127 @@ const TABS: { value: Tab; label: string; icon: any }[] = [
   { value: 'conquistas', label: 'Nível & XP', icon: Trophy },
 ]
 
+interface AppData {
+  tasks: Task[]
+  events: CalendarEvent[]
+  notes: Note[]
+  habits: Habit[]
+  checkins: HabitCheckin[]
+  goals: Goal[]
+  journal: JournalEntry[]
+}
+
+const EMPTY_DATA: AppData = { tasks: [], events: [], notes: [], habits: [], checkins: [], goals: [], journal: [] }
+
+/** Normalizes rows coming from storage (legacy/local rows may miss fields). */
+function withCategory<T extends { category: unknown }>(rows: T[] | null | undefined): T[] {
+  return (rows ?? []).map((r) => ({ ...r, category: safeCategory(r.category) }))
+}
+
+function readBonusXp(userId: string): number {
+  try {
+    const v = Number(window.localStorage.getItem(`norte_bonus_xp_${userId}`))
+    return Number.isFinite(v) && v > 0 ? v : 0
+  } catch {
+    return 0
+  }
+}
+
+function TabFallback() {
+  return (
+    <div role="status" className="flex items-center justify-center gap-2 py-12 text-xs font-mono text-slate-400">
+      <Compass className="w-4 h-4 animate-spin" aria-hidden="true" />
+      <span>Carregando...</span>
+    </div>
+  )
+}
+
 export default function App() {
   const { session, loading, user } = useAuth()
+  const sync = useSyncStatus()
   const [tab, setTab] = useState<Tab>('tarefas')
   const [selectedDate, setSelectedDate] = useState(todayISO())
   const [bonusXp, setBonusXp] = useState(0)
   const [showAiModal, setShowAiModal] = useState(false)
   const [showShortcutsModal, setShowShortcutsModal] = useState(false)
   const [showProfileModal, setShowProfileModal] = useState(false)
-
-  const [tasks, setTasks] = useState<Task[]>([])
-  const [events, setEvents] = useState<CalendarEvent[]>([])
-  const [notes, setNotes] = useState<Note[]>([])
-  const [habits, setHabits] = useState<Habit[]>([])
-  const [checkins, setCheckins] = useState<HabitCheckin[]>([])
-  const [goals, setGoals] = useState<Goal[]>([])
-  const [journalEntries, setJournalEntries] = useState<JournalEntry[]>([])
+  const [data, setData] = useState<AppData>(EMPTY_DATA)
+  const [dataLoading, setDataLoading] = useState(false)
+  const [dataError, setDataError] = useState<string | null>(null)
+  const loadSeq = useRef(0)
+  const userId = user?.id ?? null
 
   const loadData = useCallback(async () => {
-    if (!user) return
-    const [t, e, n, h, c, g, j] = await Promise.all([
-      supabase.from('tasks').select('*').order('due_date', { ascending: true }),
-      supabase.from('events').select('*').order('event_date', { ascending: true }),
-      supabase.from('notes').select('*'),
-      supabase.from('habits').select('*').order('created_at', { ascending: true }),
-      supabase.from('habit_checkins').select('*'),
-      supabase.from('goals').select('*'),
-      supabase.from('journal').select('*'),
-    ])
-    setTasks(t.data ?? [])
-    setEvents(e.data ?? [])
-    setNotes(n.data ?? [])
-    setHabits(h.data ?? [])
-    setCheckins(c.data ?? [])
-    setGoals(g.data ?? [])
-    setJournalEntries(j.data ?? [])
-  }, [user])
+    if (!userId) return
+    const seq = ++loadSeq.current
+    setDataLoading(true)
+    try {
+      const [t, e, n, h, c, g, j] = await Promise.all([
+        supabase.from('tasks').select('*').order('due_date', { ascending: true }),
+        supabase.from('events').select('*').order('event_date', { ascending: true }),
+        supabase.from('notes').select('*'),
+        supabase.from('habits').select('*').order('created_at', { ascending: true }),
+        supabase.from('habit_checkins').select('*'),
+        supabase.from('goals').select('*'),
+        supabase.from('journal').select('*'),
+      ])
+      if (seq !== loadSeq.current) return // a newer load superseded this one
+      const failed = [t, e, n, h, c, g, j].find((r) => r.error)
+      setDataError(failed?.error ? `Alguns dados não puderam ser carregados: ${failed.error.message}` : null)
+      setData({
+        tasks: withCategory(t.data as Task[]),
+        events: withCategory(e.data as CalendarEvent[]),
+        notes: withCategory(n.data as Note[]),
+        habits: withCategory(h.data as Habit[]),
+        checkins: (c.data as HabitCheckin[]) ?? [],
+        goals: withCategory(g.data as Goal[]),
+        journal: (j.data as JournalEntry[]) ?? [],
+      })
+    } catch (err) {
+      if (seq === loadSeq.current) setDataError(err instanceof Error ? err.message : 'Falha ao carregar os dados.')
+    } finally {
+      if (seq === loadSeq.current) setDataLoading(false)
+    }
+  }, [userId])
 
   useEffect(() => {
-    loadData()
-  }, [loadData])
+    setData(EMPTY_DATA)
+    setBonusXp(userId ? readBonusXp(userId) : 0)
+    void loadData()
+  }, [loadData, userId])
+
+  const handlePomodoroReward = useCallback(
+    (xp: number) => {
+      setBonusXp((prev) => {
+        const next = prev + xp
+        try {
+          if (userId) window.localStorage.setItem(`norte_bonus_xp_${userId}`, String(next))
+        } catch {
+          /* ignore storage errors */
+        }
+        return next
+      })
+    },
+    [userId],
+  )
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName)) {
-        return
-      }
+      const target = e.target as HTMLElement | null
+      if (e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return
+      if (target && (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable)) return
+      if (document.querySelector('[role="dialog"]') && e.key !== '?') return
 
       if (e.key === '?') {
         setShowShortcutsModal((prev) => !prev)
-      } else if (e.key === 'Escape') {
-        setShowShortcutsModal(false)
-        setShowAiModal(false)
       } else if (e.key >= '1' && e.key <= '9') {
-        const tabIndex = Number(e.key) - 1
-        if (TABS[tabIndex]) {
-          setTab(TABS[tabIndex].value)
-        }
+        const next = TABS[Number(e.key) - 1]
+        if (next) setTab(next.value)
+      } else if (e.key === 'n' || e.key === 'N') {
+        setTab('tarefas')
+        requestAnimationFrame(() => document.querySelector<HTMLButtonElement>('[aria-controls="new-task-form"]')?.click())
+      } else if (e.key === 'f' || e.key === 'F') {
+        setTab('foco')
       }
     }
 
@@ -145,14 +213,10 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [])
 
-  const handlePomodoroReward = (xp: number) => {
-    setBonusXp((prev) => prev + xp)
-  }
-
   if (loading) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-[#0D1117] text-slate-400 gap-3">
-        <Compass className="w-9 h-9 text-emerald-400 animate-spin" />
+      <div role="status" className="min-h-screen flex flex-col items-center justify-center bg-[#0D1117] text-slate-400 gap-3">
+        <Compass className="w-9 h-9 text-emerald-400 animate-spin" aria-hidden="true" />
         <p className="text-xs font-mono">Carregando o Norte...</p>
       </div>
     )
@@ -162,124 +226,148 @@ export default function App() {
     return <Auth />
   }
 
-  const userAccountLabel = user.email || user.phone || 'Usuário Conectado'
+  const { tasks, events, notes, habits, checkins, goals, journal } = data
   const pendingCount = tasks.filter((t) => t.due_date === selectedDate && !t.done).length
+  const degradedTables = Object.keys(sync.degraded)
+  const meta = (user.user_metadata ?? {}) as Record<string, unknown>
+  const avatarUrl = typeof meta.avatar_url === 'string' && /^https:\/\//.test(meta.avatar_url) ? meta.avatar_url : null
+  const displayName = (typeof meta.name === 'string' && meta.name) || user.email?.split('@')[0] || 'Perfil'
 
   return (
-    <div className="min-h-screen bg-[#0D1117] text-[#F0F6FC] pb-20">
-      {/* Editorial Top Header */}
+    <div className="min-h-screen bg-[#0D1117] text-[#F0F6FC] pb-24">
+      <a href="#conteudo" className="skip-link">
+        Pular para o conteúdo
+      </a>
       <header className="sticky top-0 z-30 bg-[#0D1117]/90 backdrop-blur-md border-b border-[#21262D]">
-        <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between">
-          {/* Logo */}
+        <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between gap-2">
           <NorteLogo showText size={38} />
 
-          {/* Action Controls */}
-          <div className="flex items-center gap-2">
-            {/* Clickable User Profile Avatar Button */}
+          <div className="flex items-center gap-1 sm:gap-2">
             <button
+              type="button"
               onClick={() => setShowProfileModal(true)}
-              className="flex items-center gap-2 bg-[#161B22] hover:bg-[#1F242C] text-slate-200 border border-[#30363D] hover:border-emerald-500/50 px-2.5 py-1.5 rounded-xl text-xs font-semibold transition-all group"
-              title="Meu Perfil e Personalização"
+              className="flex items-center gap-2 bg-[#161B22] hover:bg-[#1F242C] text-slate-200 border border-[#30363D] hover:border-emerald-500/50 px-2.5 py-1.5 rounded-xl text-xs font-semibold transition-all"
+              aria-label="Meu perfil e personalização"
             >
-              <div className="w-5 h-5 rounded-lg bg-[#0D1117] border border-[#30363D] flex items-center justify-center text-xs overflow-hidden">
-                {user?.user_metadata?.avatar_url ? (
-                  <img src={user.user_metadata.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
+              <span
+                className="w-5 h-5 rounded-lg bg-[#0D1117] border border-[#30363D] flex items-center justify-center text-xs overflow-hidden"
+                aria-hidden="true"
+              >
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                 ) : (
-                  <span>{user?.user_metadata?.avatar || '🧭'}</span>
+                  <span>{typeof meta.avatar === 'string' ? meta.avatar : '🧭'}</span>
                 )}
-              </div>
+              </span>
               <span className="hidden sm:inline max-w-[100px] truncate font-mono text-[11px] font-bold text-white">
-                {user?.user_metadata?.name || user?.email?.split('@')[0] || 'Perfil'}
+                {displayName}
               </span>
             </button>
 
             <button
+              type="button"
               onClick={() => setShowAiModal(true)}
-              className="flex items-center gap-1.5 bg-[#161B22] hover:bg-[#1F242C] text-slate-200 border border-[#30363D] text-xs font-semibold px-3 py-1.5 rounded-xl transition-all"
+              className="flex items-center gap-1.5 bg-[#161B22] hover:bg-[#1F242C] text-slate-200 border border-[#30363D] text-xs font-semibold px-2.5 sm:px-3 py-1.5 rounded-xl transition-all"
+              aria-label="Abrir assistente"
             >
-              <Bot className="w-4 h-4 text-emerald-400" />
+              <Bot className="w-4 h-4 text-emerald-400" aria-hidden="true" />
               <span className="hidden sm:inline">Assistente</span>
             </button>
 
-            {/* Shortcuts help button */}
             <button
+              type="button"
               onClick={() => setShowShortcutsModal(true)}
-              className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-[#161B22] transition-colors"
-              title="Atalhos de Teclado (?)"
+              className="hidden sm:inline-flex p-2 rounded-xl text-slate-400 hover:text-white hover:bg-[#161B22] transition-colors"
+              aria-label="Atalhos de teclado (?)"
+              title="Atalhos de teclado (?)"
             >
-              <Keyboard className="w-4 h-4" />
+              <Keyboard className="w-4 h-4" aria-hidden="true" />
             </button>
 
-            {/* Refresh */}
             <button
-              onClick={loadData}
-              className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-[#161B22] transition-colors"
+              type="button"
+              onClick={() => void loadData()}
+              disabled={dataLoading}
+              className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-[#161B22] transition-colors disabled:opacity-60"
+              aria-label={dataLoading ? 'Atualizando dados' : 'Atualizar dados'}
               title="Atualizar dados"
             >
-              <RefreshCw className="w-4 h-4" />
+              <RefreshCw className={`w-4 h-4 ${dataLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
             </button>
 
-            {/* Sair */}
             <button
-              onClick={() => supabase.auth.signOut()}
-              className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-rose-400 px-2.5 py-1.5 rounded-xl hover:bg-rose-500/10 transition-colors"
+              type="button"
+              onClick={() => {
+                if (window.confirm('Encerrar a sessão?')) void supabase.auth.signOut()
+              }}
+              className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-rose-400 px-2 py-1.5 rounded-xl hover:bg-rose-500/10 transition-colors"
+              aria-label="Encerrar sessão"
               title="Encerrar sessão"
             >
-              <LogOut className="w-4 h-4" />
+              <LogOut className="w-4 h-4" aria-hidden="true" />
             </button>
           </div>
         </div>
       </header>
 
-      {/* Main Container */}
       <div className="max-w-3xl mx-auto px-4 pt-6">
-        {/* KPI Dashboard */}
-        <StatsOverview
-          tasks={tasks}
-          events={events}
-          notes={notes}
-          habits={habits}
-          checkins={checkins}
-          onSelectTab={setTab}
-        />
+        {sync.mode === 'local' && (
+          <p className="flex items-start gap-2 text-[11px] text-slate-300 bg-slate-900/60 border border-slate-800 rounded-xl px-3 py-2 mb-4">
+            <HardDrive className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-emerald-400" aria-hidden="true" />
+            <span>Modo local: seus dados ficam salvos apenas neste navegador.</span>
+          </p>
+        )}
+        {sync.mode === 'cloud' && degradedTables.length > 0 && (
+          <p
+            role="status"
+            className="flex items-start gap-2 text-[11px] text-amber-200 bg-amber-950/40 border border-amber-800/60 rounded-xl px-3 py-2 mb-4"
+          >
+            <CloudOff className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" aria-hidden="true" />
+            <span>
+              Sem sincronização no momento. Alterações recentes foram salvas neste dispositivo e serão enviadas quando possível.
+              Use “Atualizar dados” para tentar novamente.
+            </span>
+          </p>
+        )}
+        <FormError message={dataError} />
 
-        {/* Week Ribbon Date Selector */}
-        <WeekRibbon
-          tasks={tasks}
-          events={events}
-          selectedDate={selectedDate}
-          onSelect={setSelectedDate}
-        />
+        <StatsOverview tasks={tasks} events={events} notes={notes} habits={habits} checkins={checkins} onSelectTab={setTab} />
 
-        {/* Selected date alert */}
+        <WeekRibbon tasks={tasks} events={events} selectedDate={selectedDate} onSelect={setSelectedDate} />
+
         {pendingCount > 0 && (
-          <div className="flex items-center justify-between bg-emerald-950/40 border border-emerald-800/60 rounded-xl px-4 py-2.5 mb-5">
+          <div className="flex items-center justify-between gap-2 bg-emerald-950/40 border border-emerald-800/60 rounded-xl px-4 py-2.5 mb-5">
             <span className="text-xs font-medium text-emerald-300">
               {pendingCount} pendência{pendingCount > 1 ? 's' : ''} para {formatDatePT(selectedDate)}
             </span>
-            <button onClick={() => setTab('tarefas')} className="text-xs font-bold text-emerald-400 hover:underline">
+            <button
+              type="button"
+              onClick={() => setTab('tarefas')}
+              className="text-xs font-bold text-emerald-400 hover:underline"
+            >
               Ver tarefas →
             </button>
           </div>
         )}
 
-        {/* Navigation Tabs */}
-        <nav className="mb-6">
+        <nav aria-label="Seções" className="mb-6">
           <div className="flex gap-1 bg-[#161B22] border border-[#21262D] rounded-2xl p-1.5 shadow-sm overflow-x-auto">
             {TABS.map((t) => {
               const Icon = t.icon
               const isActive = tab === t.value
               return (
                 <button
+                  type="button"
                   key={t.value}
                   onClick={() => setTab(t.value)}
-                  className={`flex-1 min-w-[65px] flex items-center justify-center gap-1.5 text-xs font-semibold py-2.5 px-2 rounded-xl transition-all ${
+                  aria-current={isActive ? 'page' : undefined}
+                  className={`flex-1 min-w-[72px] flex items-center justify-center gap-1.5 text-xs font-semibold py-2.5 px-2 rounded-xl transition-all whitespace-nowrap ${
                     isActive
                       ? 'bg-[#0D1117] text-white border border-[#30363D] font-bold'
                       : 'text-slate-400 hover:text-slate-200 hover:bg-[#1F242C]'
                   }`}
                 >
-                  <Icon className="w-3.5 h-3.5 stroke-[1.75]" />
+                  <Icon className="w-3.5 h-3.5 flex-shrink-0 stroke-[1.75]" aria-hidden="true" />
                   <span>{t.label}</span>
                 </button>
               )
@@ -287,62 +375,34 @@ export default function App() {
           </div>
         </nav>
 
-        {/* Main Content View */}
-        <main>
-          {tab === 'tarefas' && (
-            <Tasks tasks={tasks} userId={user.id} onChange={loadData} selectedDate={selectedDate} />
-          )}
-          {tab === 'kanban' && (
-            <KanbanBoard tasks={tasks} userId={user.id} onChange={loadData} />
-          )}
-          {tab === 'foco' && <FocusTimer onSessionComplete={handlePomodoroReward} />}
-          {tab === 'calendario' && (
-            <CalendarView events={events} userId={user.id} onChange={loadData} />
-          )}
-          {tab === 'notas' && <Notes notes={notes} userId={user.id} onChange={loadData} />}
-          {tab === 'habitos' && (
-            <Habits habits={habits} checkins={checkins} userId={user.id} onChange={loadData} />
-          )}
-          {tab === 'metrica' && (
-            <ProductivityAnalytics
-              tasks={tasks}
-              events={events}
-              habits={habits}
-              checkins={checkins}
-              bonusXp={bonusXp}
-            />
-          )}
-          {tab === 'relatorio' && (
-            <WeeklyReportExporter
-              tasks={tasks}
-              events={events}
-              notes={notes}
-              habits={habits}
-              checkins={checkins}
-              goals={goals}
-            />
-          )}
-          {tab === 'social' && <SocialChallenges />}
-          {tab === 'metas' && (
-            <GoalsTracker goals={goals} userId={user.id} onChange={loadData} />
-          )}
-          {tab === 'diario' && (
-            <DailyJournal journalEntries={journalEntries} userId={user.id} onChange={loadData} />
-          )}
-          {tab === 'conquistas' && (
-            <Gamification
-              tasks={tasks}
-              events={events}
-              notes={notes}
-              habits={habits}
-              checkins={checkins}
-              bonusXp={bonusXp}
-            />
-          )}
+        <main id="conteudo" tabIndex={-1} className="outline-none">
+          {/* The timer stays mounted so it keeps running (and playing sound) while you browse other tabs. */}
+          <div hidden={tab !== 'foco'}>
+            <FocusTimer onSessionComplete={handlePomodoroReward} />
+          </div>
+
+          <Suspense fallback={<TabFallback />}>
+            {tab === 'tarefas' && <Tasks tasks={tasks} userId={user.id} onChange={loadData} selectedDate={selectedDate} />}
+            {tab === 'kanban' && <KanbanBoard tasks={tasks} userId={user.id} onChange={loadData} />}
+            {tab === 'calendario' && <CalendarView events={events} userId={user.id} onChange={loadData} />}
+            {tab === 'notas' && <Notes notes={notes} userId={user.id} onChange={loadData} />}
+            {tab === 'habitos' && <Habits habits={habits} checkins={checkins} userId={user.id} onChange={loadData} />}
+            {tab === 'metrica' && (
+              <ProductivityAnalytics tasks={tasks} events={events} habits={habits} checkins={checkins} bonusXp={bonusXp} />
+            )}
+            {tab === 'relatorio' && (
+              <WeeklyReportExporter tasks={tasks} events={events} notes={notes} habits={habits} goals={goals} />
+            )}
+            {tab === 'social' && <SocialChallenges userId={user.id} onScheduled={loadData} />}
+            {tab === 'metas' && <GoalsTracker goals={goals} userId={user.id} onChange={loadData} />}
+            {tab === 'diario' && <DailyJournal journalEntries={journal} userId={user.id} onChange={loadData} />}
+            {tab === 'conquistas' && (
+              <Gamification tasks={tasks} events={events} notes={notes} checkins={checkins} bonusXp={bonusXp} />
+            )}
+          </Suspense>
         </main>
       </div>
 
-      {/* Floating Action Button (FAB) */}
       <QuickActionFab
         onOpenTask={() => setTab('tarefas')}
         onOpenEvent={() => setTab('calendario')}
@@ -351,29 +411,15 @@ export default function App() {
         onOpenFocus={() => setTab('foco')}
       />
 
-      {/* AI Assistant Modal */}
-      {showAiModal && (
-        <AiAssistantModal
-          userId={user.id}
-          tasks={tasks}
-          onClose={() => setShowAiModal(false)}
-          onSuccess={loadData}
-        />
-      )}
-
-      {/* Keyboard Shortcuts Modal */}
-      {showShortcutsModal && (
-        <KeyboardShortcutsModal onClose={() => setShowShortcutsModal(false)} />
-      )}
-
-      {/* User Profile Modal */}
-      {showProfileModal && (
-        <UserProfileModal
-          user={user}
-          onClose={() => setShowProfileModal(false)}
-          onUpdateProfile={loadData}
-        />
-      )}
+      <Suspense fallback={null}>
+        {showAiModal && (
+          <AiAssistantModal userId={user.id} tasks={tasks} onClose={() => setShowAiModal(false)} onSuccess={loadData} />
+        )}
+        {showShortcutsModal && <KeyboardShortcutsModal tabs={TABS} onClose={() => setShowShortcutsModal(false)} />}
+        {showProfileModal && (
+          <UserProfileModal user={user} onClose={() => setShowProfileModal(false)} onUpdateProfile={loadData} />
+        )}
+      </Suspense>
     </div>
   )
 }

@@ -28,3 +28,11 @@ dist-ssr
 .agent
 .tmp
 *.tsbuildinfo
+
+# Env files (keep the example)
+.env.*
+!.env.example
+
+# Test / build artifacts
+coverage
+dev-dist
